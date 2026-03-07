@@ -4,7 +4,9 @@ Interactive force-directed graph of a GitHub organisation's repositories and the
 
 ## Host this in your org (5 minutes)
 
-1. **Fork or clone** this repo into your GitHub org.
+1. **Add this repo to your org.** GitHub does not allow forking a public repo as a private one, so pick the option that fits:
+   - **Public**: click **Fork** and select your org as the destination.
+   - **Private**: go to [github.com/new/import](https://github.com/new/import), paste this repo's URL, set visibility to private, and import.
 
 2. **Create a Personal Access Token (PAT)** with `repo` (or `public_repo` for public-only) and `read:org` scopes:
    - Go to **GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)**
