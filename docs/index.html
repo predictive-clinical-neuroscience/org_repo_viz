@@ -588,12 +588,6 @@ html, body { height: 100%; overflow: hidden; font-family: -apple-system, BlinkMa
         <button class="section-expand-btn" onclick="resetLayout()">Reset layout</button>
         <button class="section-expand-btn" onclick="resetView()">Reset view</button>
         <div class="toggle-row" style="margin-top:6px">
-          <label for="toggle-layout-visible">Layout visible only</label>
-          <label class="toggle-switch">
-            <input type="checkbox" id="toggle-layout-visible" onchange="layoutVisibleOnly = this.checked">
-            <div class="toggle-track"></div>
-            <div class="toggle-thumb"></div>
-          </label>
         </div>
       </div>
 
@@ -605,7 +599,7 @@ html, body { height: 100%; overflow: hidden; font-family: -apple-system, BlinkMa
         </div>
         <div class="collapsible-body closed" id="force-body">
           <div class="force-group" style="margin-top:8px">
-            <label class="force-label">Global attraction <span class="filter-range-val" id="lp-charge-val">20</span></label>
+            <label class="force-label">Disk tightness <span class="filter-range-val" id="lp-charge-val">20</span></label>
             <div class="filter-range-row">
               <input type="range" class="filter-range" id="lp-charge" min="0" max="100" value="20">
             </div>
@@ -617,15 +611,15 @@ html, body { height: 100%; overflow: hidden; font-family: -apple-system, BlinkMa
             </div>
           </div>
           <div class="force-group">
-            <label class="force-label">Link distance <span class="filter-range-val" id="lp-linkdist-val">200</span></label>
+            <label class="force-label">Link distance <span class="filter-range-val" id="lp-linkdist-val">380</span></label>
             <div class="filter-range-row">
-              <input type="range" class="filter-range" id="lp-linkdist" min="50" max="500" step="10" value="200">
+              <input type="range" class="filter-range" id="lp-linkdist" min="50" max="500" step="10" value="380">
             </div>
           </div>
           <div class="force-group">
-            <label class="force-label">Collision radius <span class="filter-range-val" id="lp-mindist-val">150</span></label>
+            <label class="force-label">Collision radius <span class="filter-range-val" id="lp-mindist-val">160</span></label>
             <div class="filter-range-row">
-              <input type="range" class="filter-range" id="lp-mindist" min="50" max="500" step="10" value="150">
+              <input type="range" class="filter-range" id="lp-mindist" min="50" max="500" step="10" value="160">
             </div>
           </div>
           <button class="section-expand-btn" onclick="resetLayout()" style="margin-top:4px">Restart simulation</button>
@@ -750,8 +744,7 @@ let focusMode = null;       // 'with-deps' | 'node-only'
 let _dragHappened = false;  // true if mouse moved during last node drag
 let dependentsMap = {};     // repoId -> [repoId, ...] that depend on it
 // When true, resetLayout fixes hidden nodes and excludes them from forces
-let layoutVisibleOnly = true;
-let currentForceValues = { charge: 20, attract: 0.5, linkDist: 200, collision: 150 };
+let currentForceValues = { charge: 20, attract: 0.5, linkDist: 380, collision: 160 };
 
 // ============================================================
 // Bootstrap
@@ -813,11 +806,11 @@ function initGraph() {
   const H0 = document.getElementById('graph-container').clientHeight;
   simulation = d3.forceSimulation(nodes)
     .randomSource(d3.randomLcg(42))
-    .force('link',      d3.forceLink(links).id(d => d.id).distance(200).strength(0.5))
-    .force('charge',    d3.forceManyBody().strength(20))
-    .force('collision', d3.forceCollide(150))
-    .force('x',         d3.forceX(W0 / 2).strength(0.08))
-    .force('y',         d3.forceY(H0 / 2).strength(0.08))
+    .force('link',      d3.forceLink(links).id(d => d.id).distance(380).strength(0.5))
+    .force('charge',    d3.forceManyBody().strength(-300))
+    .force('collision', d3.forceCollide(160))
+    .force('x',         d3.forceX(W0 / 2).strength(0.1))
+    .force('y',         d3.forceY(H0 / 2).strength(0.1))
     .stop();
 
   // Pre-warm: run 300 ticks silently before first render
@@ -1250,7 +1243,7 @@ function initLayoutControls() {
     v => { currentForceValues.charge = v; applyForces(); }
   );
   wire('lp-attract', 'lp-attract-val',
-    raw => raw / 20, v => v.toFixed(1),
+    raw => +(raw / 20).toFixed(2), v => v.toFixed(2),
     v => { currentForceValues.attract = v; applyForces(); }
   );
   wire('lp-linkdist', 'lp-linkdist-val',
@@ -1345,23 +1338,19 @@ function updateEdgeVisibility() {
 
 function applyForces() {
   const { charge, attract, linkDist, collision } = currentForceValues;
-  if (layoutVisibleOnly) {
-    simulation.force('charge').strength(20);
-    simulation.force('link').strength(l => {
-      const sh = typeof l.source === 'object' ? l.source._hidden : false;
-      const th = typeof l.target === 'object' ? l.target._hidden : false;
-      return (sh || th) ? 0 : attract;
-    });
-    simulation.force('collision').radius(n => n._hidden ? 0 : collision);
-    simulation.force('x').strength(n => n._hidden ? 0 : charge / 250);
-    simulation.force('y').strength(n => n._hidden ? 0 : charge / 250);
-  } else {
-    simulation.force('charge').strength(20);
-    simulation.force('link').strength(attract);
-    simulation.force('collision').radius(collision);
-    simulation.force('x').strength(charge / 250);
-    simulation.force('y').strength(charge / 250);
-  }
+  const container = document.getElementById('graph-container');
+  const cx = container.clientWidth / 2, cy = container.clientHeight / 2;
+
+  simulation.force('charge').strength(n => n._hidden ? 0 : -300);
+  simulation.force('link').strength(l => {
+    const sh = typeof l.source === 'object' ? l.source._hidden : false;
+    const th = typeof l.target === 'object' ? l.target._hidden : false;
+    return (sh || th) ? 0 : attract;
+  });
+  simulation.force('collision').radius(n => n._hidden ? 0 : collision);
+  simulation.force('x').x(cx).strength(n => n._hidden ? 0 : charge / 200);
+  simulation.force('y').y(cy).strength(n => n._hidden ? 0 : charge / 200);
+
   simulation.force('link').distance(linkDist);
 }
 
@@ -1371,7 +1360,7 @@ function resetLayout() {
   const H = container.clientHeight;
   const rng = d3.randomLcg(42);
   nodes.forEach(n => {
-    if (layoutVisibleOnly && n._hidden) {
+    if (n._hidden) {
       n.fx = n.x; n.fy = n.y;
     } else {
       n.fx = null; n.fy = null;
@@ -1779,24 +1768,28 @@ function updateStats() {
       <span class="dep-stat-count">${count} repos</span>
     </div>`).join('') || '<em style="color:#8b949e;font-size:11px">No shared dependencies found</em>';
 
-  // Contributors — count repos contributed to (avoids inflating with pre-org commit history)
-  const contribRepos = {};
+  // Contributors — sum per-repo commit/PR counts (each is scoped to that repo, so total is org-wide)
+  const contribTotals = {};
   const contribMeta = {};
   repos.forEach(r => r.contributors.forEach(c => {
-    if (!contribRepos[c.login]) contribRepos[c.login] = new Set();
-    contribRepos[c.login].add(r.id);
+    if (!contribTotals[c.login]) contribTotals[c.login] = { commits: 0, prs: 0 };
+    contribTotals[c.login].commits += c.commit_count || 0;
+    contribTotals[c.login].prs    += c.pr_count    || 0;
     contribMeta[c.login] = c;
   }));
-  const topContribs = Object.entries(contribRepos).sort((a,b)=>b[1].size-a[1].size).slice(0, 12);
-  document.getElementById('stats-contributors').innerHTML = topContribs.map(([login, repoSet]) => {
+  const topContribs = Object.entries(contribTotals).sort((a,b)=>b[1].commits-a[1].commits).slice(0, 12);
+  document.getElementById('stats-contributors').innerHTML = topContribs.map(([login, { commits, prs }]) => {
     const meta = contribMeta[login] || {};
-    const n = repoSet.size;
+    const detail = [
+      `${commits} commit${commits !== 1 ? 's' : ''}`,
+      prs ? `${prs} PR${prs !== 1 ? 's' : ''}` : null,
+    ].filter(Boolean).join(' · ');
     return `<div class="contrib-stat-row"
          onmouseenter="setHighlightContrib('${esc(login)}')"
          onmouseleave="setHighlightContrib(null)">
       <img class="contrib-stat-avatar" src="${meta.avatar_url || ''}" alt="${esc(login)}" loading="lazy">
       <span class="contrib-stat-name">${esc(login)}</span>
-      <span class="contrib-stat-count">${n} ${n === 1 ? 'repo' : 'repos'}</span>
+      <span class="contrib-stat-count">${detail}</span>
     </div>`;
   }).join('');
 }
