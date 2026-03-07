@@ -1,7 +1,8 @@
 [project]
 name = "org-repo-viz"
 version = "0.1.0"
-description = "Add your description here"
+description = "Interactive force-directed graph of a GitHub organisation's repositories and their interdependencies"
+license = { text = "MIT" }
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
