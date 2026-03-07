@@ -6,7 +6,8 @@ venv/
 
 # Secrets
 .env
-.env.*
+
 
 # The generated data file — commit it deliberately when you want to publish
 # docs/data.json
+docs/data.json

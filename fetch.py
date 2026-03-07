@@ -6,6 +6,7 @@ Usage:
     python fetch.py <org_name>
     python fetch.py <org_name> --token ghp_xxxx
     GITHUB_TOKEN=ghp_xxxx python fetch.py <org_name>
+    python fetch.py  # reads GITHUB_ORG and GITHUB_TOKEN from .env
 
 The output is written to docs/data.json by default.
 Open docs/index.html locally or push docs/ to GitHub Pages to view the visualization.
@@ -18,6 +19,7 @@ import re
 import base64
 import argparse
 import time
+import dotenv
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -167,6 +169,7 @@ def extract_deps(client, owner, repo, languages):
                 pass
 
     if "Python" in lang_set:
+        py_deps = []
         for req_path in ["requirements.txt", "requirements/base.txt", "requirements/prod.txt"]:
             content = fetch_file(client, owner, repo, req_path)
             if content:
@@ -175,15 +178,55 @@ def extract_deps(client, owner, repo, languages):
                     if line and not line.startswith(("#", "-", "git+")):
                         name = re.split(r"[>=<!;\s\[]", line)[0].strip()
                         if name:
-                            deps.append(name)
+                            py_deps.append(name)
                 break
-        if not deps:
+        if not py_deps:
             content = fetch_file(client, owner, repo, "pyproject.toml")
             if content:
-                m = re.findall(r'dependencies\s*=\s*\[(.*?)\]', content, re.DOTALL)
+                # PEP 517/518 [project] dependencies array
+                m = re.findall(r'\[project\].*?dependencies\s*=\s*\[(.*?)\]', content, re.DOTALL)
+                if not m:
+                    m = re.findall(r'dependencies\s*=\s*\[(.*?)\]', content, re.DOTALL)
                 if m:
-                    for dep in re.findall(r'"([^">=<!\s\[]+)', m[0]):
-                        deps.append(dep)
+                    for dep in re.findall(r'["\']([A-Za-z0-9][\w.\-]*)', m[0]):
+                        py_deps.append(dep)
+                # Poetry: [tool.poetry.dependencies] table format
+                in_poetry_deps = False
+                for line in content.splitlines():
+                    if re.match(r'\[tool\.poetry\.dependencies\]', line):
+                        in_poetry_deps = True
+                    elif line.startswith("[") and in_poetry_deps:
+                        in_poetry_deps = False
+                    elif in_poetry_deps:
+                        pm = re.match(r'^([\w][\w.\-]*)\s*=', line)
+                        if pm and pm.group(1).lower() != "python":
+                            py_deps.append(pm.group(1))
+        deps.extend(py_deps)
+
+    if lang_set & {"Swift"}:
+        content = fetch_file(client, owner, repo, "Package.swift")
+        if content:
+            # Extract dependency repo names from GitHub-style URLs
+            for m in re.finditer(r'url\s*:\s*"([^"]+)"', content):
+                url = m.group(1)
+                repo_name = url.rstrip("/").split("/")[-1]
+                repo_name = re.sub(r"\.git$", "", repo_name, flags=re.IGNORECASE)
+                if repo_name:
+                    deps.append(repo_name)
+
+    if lang_set & {"Kotlin", "Java", "Groovy", "Scala"}:
+        for gradle_file in ["build.gradle.kts", "build.gradle"]:
+            content = fetch_file(client, owner, repo, gradle_file)
+            if content:
+                for m in re.finditer(
+                    r'(?:implementation|api|compileOnly|runtimeOnly|testImplementation|compile)\s*\(?["\']([^"\']+)["\']',
+                    content,
+                ):
+                    coord = m.group(1)
+                    parts = coord.split(":")
+                    if len(parts) >= 2:
+                        deps.append(parts[1])  # artifactId
+                break
 
     if "Go" in lang_set:
         content = fetch_file(client, owner, repo, "go.mod")
@@ -221,13 +264,25 @@ def extract_deps(client, owner, repo, languages):
 def build_internal_deps(repos_data, org):
     """Populate internal dependency edges by matching external dep names to repo names."""
     repo_names = {r["name"] for r in repos_data}
+
+    def normalize(name):
+        return name.lower().replace("-", "").replace("_", "").replace(".", "")
+
+    normalized_map = {normalize(n): n for n in repo_names}
+
     for repo in repos_data:
         internal = set()
         for dep in repo["dependencies"]["external"]:
             # Strip scope prefix (e.g. @myorg/pkg -> pkg)
             clean = re.sub(r'^@[^/]+/', '', dep)
+            # Exact match
             if clean in repo_names and clean != repo["name"]:
                 internal.add(clean)
+            else:
+                # Normalized match: case-insensitive, ignore hyphens/underscores/dots
+                norm = normalize(clean)
+                if norm in normalized_map and normalized_map[norm] != repo["name"]:
+                    internal.add(normalized_map[norm])
         repo["dependencies"]["internal"] = sorted(internal)
 
 
@@ -282,6 +337,8 @@ def process_repo(client, repo, org):
 # ---------------------------------------------------------------------------
 
 def main():
+    dotenv.load_dotenv()
+
     parser = argparse.ArgumentParser(
         description="Fetch GitHub org data for org-repo-viz",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -290,15 +347,24 @@ Examples:
   python fetch.py my-org
   python fetch.py my-org --token ghp_xxxx
   GITHUB_TOKEN=ghp_xxxx python fetch.py my-org --skip-forks
+  python fetch.py  # reads GITHUB_ORG and GITHUB_TOKEN from .env
         """,
     )
-    parser.add_argument("org", help="GitHub organization name")
+    parser.add_argument("org", nargs="?", default=None, help="GitHub organization name (or set GITHUB_ORG in .env)")
     parser.add_argument("--output", default="docs/data.json", help="Output path (default: docs/data.json)")
     parser.add_argument("--token", default=None, help="GitHub personal access token")
     parser.add_argument("--skip-forks", action="store_true", help="Skip forked repositories")
     parser.add_argument("--skip-archived", action="store_true", help="Skip archived repositories")
     parser.add_argument("--limit", type=int, default=None, help="Process at most N repos (for testing)")
     args = parser.parse_args()
+
+    org = args.org
+    if org is None:
+        org = os.environ.get("GITHUB_ORG")
+    if not org:
+        print("Error: GitHub organization required.")
+        print("  Pass it as an argument or set GITHUB_ORG in .env")
+        sys.exit(1)
 
     token = args.token or os.environ.get("GITHUB_TOKEN")
     if not token:
@@ -309,17 +375,29 @@ Examples:
 
     client = GitHubClient(token)
 
-    user = client.get_json("/user")
+    try:
+        user = client.get_json("/user")
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 401:
+            print("Error: Authentication failed (401 Unauthorized).")
+            print("  Possible causes:")
+            print("    - Token is invalid, expired, or revoked")
+            print("    - Token was copy-pasted incorrectly (check for extra spaces/newlines)")
+            print("    - If using SSO, authorize the token for your org at:")
+            print("      https://github.com/settings/tokens → Configure SSO")
+            print("  Required scopes: repo (or public_repo), read:org")
+            sys.exit(1)
+        raise
     if not user:
         print("Error: Could not authenticate. Check your token.")
         sys.exit(1)
     print(f"Authenticated as: {user.get('login')}")
 
-    print(f"\nFetching repos for org: {args.org}")
-    repos = client.get_all_pages(f"/orgs/{args.org}/repos", {"type": "all", "sort": "updated"}, max_pages=50)
+    print(f"\nFetching repos for org: {org}")
+    repos = client.get_all_pages(f"/orgs/{org}/repos", {"type": "all", "sort": "updated"}, max_pages=50)
 
     if not repos:
-        print(f"Error: No repos found for '{args.org}'. Check org name and token permissions.")
+        print(f"Error: No repos found for '{org}'. Check org name and token permissions.")
         sys.exit(1)
 
     if args.skip_forks:
@@ -335,7 +413,7 @@ Examples:
     for i, repo in enumerate(repos):
         print(f"  [{i+1:>3}/{len(repos)}] {repo['name']:<40}", end="", flush=True)
         try:
-            repo_data = process_repo(client, repo, args.org)
+            repo_data = process_repo(client, repo, org)
             repos_data.append(repo_data)
             lang_count = len(repo_data["languages"])
             contrib_count = len(repo_data["contributors"])
@@ -344,12 +422,12 @@ Examples:
             print(f"  ERROR: {e}")
 
     print("\nBuilding internal dependency graph...")
-    build_internal_deps(repos_data, args.org)
+    build_internal_deps(repos_data, org)
     edge_count = sum(len(r["dependencies"]["internal"]) for r in repos_data)
     print(f"Found {edge_count} internal dependency edges")
 
     output = {
-        "org": args.org,
+        "org": org,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "total_repos": len(repos_data),
         "repos": repos_data,

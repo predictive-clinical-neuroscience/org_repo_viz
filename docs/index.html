@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Org Repo Visualizer</title>
 <script src="https://d3js.org/d3.v7.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@9/marked.min.js"></script>
 <style>
 /* ── Reset & base ── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -19,15 +20,15 @@ html, body { height: 100%; overflow: hidden; font-family: -apple-system, BlinkMa
 #graph-container.panning { cursor: grabbing; }
 
 /* ── SVG edges layer ── */
-#edges-svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+#edges-svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; transform-origin: 0 0; overflow: visible; }
 .edge { stroke: #388bfd44; stroke-width: 1.5; fill: none; }
 .edge.highlighted { stroke: #58a6ff; stroke-width: 2; }
 .edge.dimmed { opacity: 0.08; }
-#arrowhead path { fill: #388bfd88; }
-#arrowhead-hi path { fill: #58a6ff; }
+#arrowhead path, #arrowhead-mid path { fill: #388bfd88; }
+#arrowhead-hi path, #arrowhead-mid-hi path { fill: #58a6ff; }
 
 /* ── Nodes layer ── */
-#nodes-layer { position: absolute; top: 0; left: 0; width: 0; height: 0; }
+#nodes-layer { position: absolute; top: 0; left: 0; width: 0; height: 0; transform-origin: 0 0; }
 
 /* ── Repo node tile ── */
 .repo-node {
@@ -74,6 +75,9 @@ html, body { height: 100%; overflow: hidden; font-family: -apple-system, BlinkMa
   color: #8b949e;
   line-height: 1.4;
   min-height: 20px;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
 }
 
 /* Sections container */
@@ -125,6 +129,7 @@ html, body { height: 100%; overflow: hidden; font-family: -apple-system, BlinkMa
 .contrib-avatar { width: 20px; height: 20px; border-radius: 50%; }
 .contrib-name { flex: 1; color: #58a6ff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .contrib-stats { font-size: 10px; color: #8b949e; white-space: nowrap; }
+.contributors-scroll { max-height: 78px; overflow-y: auto; }
 
 /* Sparkline */
 .sparkline-wrap { margin: 2px 0; }
@@ -147,14 +152,65 @@ html, body { height: 100%; overflow: hidden; font-family: -apple-system, BlinkMa
 .dep-tag.internal { color: #58a6ff; border-color: #388bfd44; background: #388bfd11; }
 .dep-section-label { font-size: 10px; color: #8b949e; margin: 4px 0 2px; }
 
-/* README */
-.readme-content {
-  max-height: 200px; overflow-y: auto; color: #8b949e;
-  white-space: pre-wrap; word-break: break-word; font-size: 10px;
-  line-height: 1.5; font-family: "SFMono-Regular", Consolas, monospace;
+/* README preview in tile */
+.readme-preview {
+  color: #8b949e; font-size: 11px; line-height: 1.4;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  white-space: pre-wrap; word-break: break-word;
 }
+.readme-expand-btn {
+  flex-shrink: 0; padding: 1px 6px;
+  background: #1c2128; border: 1px solid #30363d; border-radius: 4px;
+  color: #58a6ff; font-size: 10px; cursor: pointer; white-space: nowrap; line-height: 1.6;
+}
+.readme-expand-btn:hover { background: #21262d; border-color: #58a6ff; }
+
+/* README modal */
+#readme-modal {
+  position: fixed; inset: 0; background: #000000aa; z-index: 200;
+  display: none; align-items: center; justify-content: center;
+}
+#readme-modal.open { display: flex; }
+.readme-modal-box {
+  background: #161b22; border: 1px solid #30363d; border-radius: 10px;
+  width: 90%; max-width: 720px; max-height: 82vh; display: flex; flex-direction: column;
+  box-shadow: 0 8px 32px #000000cc;
+}
+.readme-modal-header {
+  display: flex; align-items: center; padding: 12px 16px;
+  border-bottom: 1px solid #30363d; flex-shrink: 0;
+}
+.readme-modal-title { flex: 1; font-weight: 600; font-size: 14px; color: #e6edf3; }
+.readme-modal-close {
+  background: none; border: none; color: #8b949e; font-size: 18px;
+  cursor: pointer; padding: 0 4px; line-height: 1; border-radius: 3px;
+}
+.readme-modal-close:hover { color: #e6edf3; background: #21262d; }
+.readme-modal-body { padding: 20px 24px; overflow-y: auto; flex: 1; }
+.readme-rendered { color: #e6edf3; font-size: 13px; line-height: 1.65; }
+.readme-rendered h1, .readme-rendered h2, .readme-rendered h3,
+.readme-rendered h4, .readme-rendered h5, .readme-rendered h6 {
+  border-bottom: 1px solid #21262d; padding-bottom: 4px; margin: 20px 0 8px; color: #e6edf3;
+}
+.readme-rendered h1 { font-size: 20px; } .readme-rendered h2 { font-size: 17px; } .readme-rendered h3 { font-size: 14px; }
+.readme-rendered p { margin: 8px 0; }
+.readme-rendered a { color: #58a6ff; }
+.readme-rendered code { background: #1c2128; padding: 2px 5px; border-radius: 3px; font-size: 12px; font-family: "SFMono-Regular", Consolas, monospace; }
+.readme-rendered pre { background: #1c2128; padding: 14px; border-radius: 6px; overflow-x: auto; margin: 10px 0; }
+.readme-rendered pre code { background: none; padding: 0; }
+.readme-rendered ul, .readme-rendered ol { padding-left: 22px; margin: 8px 0; }
+.readme-rendered li { margin: 3px 0; }
+.readme-rendered blockquote { border-left: 3px solid #30363d; padding-left: 14px; color: #8b949e; margin: 10px 0; }
+.readme-rendered img { max-width: 100%; border-radius: 4px; }
+.readme-rendered table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 12px; }
+.readme-rendered th, .readme-rendered td { border: 1px solid #30363d; padding: 6px 10px; }
+.readme-rendered th { background: #1c2128; }
+.readme-rendered hr { border: none; border-top: 1px solid #30363d; margin: 16px 0; }
 
 /* ── Sidebars ── */
+#sidebar-left.collapsed, #sidebar-right.collapsed {
+  width: 0; min-width: 0; overflow: hidden; border: none;
+}
 .sidebar-header {
   padding: 12px 14px 10px;
   font-weight: 600;
@@ -163,7 +219,39 @@ html, body { height: 100%; overflow: hidden; font-family: -apple-system, BlinkMa
   position: sticky; top: 0;
   background: #161b22;
   z-index: 1;
+  display: flex; align-items: center; justify-content: space-between;
 }
+.sidebar-collapse-btn {
+  background: none; border: none; color: #8b949e; cursor: pointer;
+  font-size: 14px; line-height: 1; padding: 2px 4px; border-radius: 3px;
+  flex-shrink: 0;
+}
+.sidebar-collapse-btn:hover { color: #e6edf3; background: #21262d; }
+
+/* Sidebar reveal buttons (shown when sidebar is collapsed) */
+.sidebar-reveal-btn {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 20px; height: 48px; background: #161b22; border: 1px solid #30363d;
+  color: #8b949e; cursor: pointer; font-size: 11px; z-index: 11;
+  display: none; align-items: center; justify-content: center;
+  padding: 0;
+}
+.sidebar-reveal-btn:hover { color: #e6edf3; background: #1c2128; border-color: #58a6ff; }
+.sidebar-reveal-btn.left  { left: 0;  border-left: none; border-radius: 0 4px 4px 0; }
+.sidebar-reveal-btn.right { right: 0; border-right: none; border-radius: 4px 0 0 4px; }
+
+/* Zoom controls */
+#zoom-controls {
+  position: absolute; bottom: 40px; right: 12px;
+  display: flex; flex-direction: column; gap: 4px; z-index: 10;
+}
+.zoom-btn {
+  width: 28px; height: 28px; background: #161b22; border: 1px solid #30363d;
+  color: #8b949e; cursor: pointer; font-size: 15px; border-radius: 5px;
+  display: flex; align-items: center; justify-content: center; padding: 0;
+  line-height: 1;
+}
+.zoom-btn:hover { color: #e6edf3; background: #1c2128; border-color: #58a6ff; }
 .sidebar-section { padding: 10px 14px; border-bottom: 1px solid #21262d; }
 .sidebar-section-title { font-size: 11px; font-weight: 600; color: #8b949e; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
 
@@ -196,6 +284,7 @@ html, body { height: 100%; overflow: hidden; font-family: -apple-system, BlinkMa
 
 /* Stats sidebar */
 .stat-number { font-size: 22px; font-weight: 700; color: #58a6ff; }
+.stat-total { font-size: 14px; font-weight: 400; color: #8b949e; }
 .stat-label { font-size: 11px; color: #8b949e; }
 .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .stat-card { background: #0d1117; border-radius: 6px; padding: 8px; }
@@ -239,6 +328,84 @@ html, body { height: 100%; overflow: hidden; font-family: -apple-system, BlinkMa
   font-size: 11px; color: #8b949e55; pointer-events: none; white-space: nowrap;
 }
 
+/* ── Filter panel ── */
+.filter-panel-header {
+  display: flex; align-items: center; gap: 6px; cursor: pointer; padding-bottom: 6px;
+}
+.filter-panel-header:hover .sidebar-section-title { color: #e6edf3; }
+.filter-active-badge {
+  background: #388bfd; color: #fff; font-size: 9px; font-weight: 700;
+  border-radius: 8px; padding: 1px 6px; line-height: 1.5;
+}
+.filter-chevron { font-size: 11px; color: #8b949e; margin-left: auto; transition: transform 0.15s; user-select: none; }
+.filter-panel-header.collapsed-hdr .filter-chevron { transform: rotate(-90deg); }
+#filter-body.hidden { display: none; }
+.filter-group { margin-bottom: 10px; }
+.filter-label { display: block; font-size: 10px; color: #8b949e; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
+.filter-chips { display: flex; flex-wrap: wrap; gap: 3px; }
+.filter-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; padding-top: 6px; border-top: 1px solid #21262d; }
+.filter-status { font-size: 11px; color: #8b949e; }
+.filter-status .match-count { color: #58a6ff; font-weight: 600; }
+.filter-clear-btn {
+  padding: 3px 10px; background: none; border: 1px solid #30363d; border-radius: 4px;
+  color: #8b949e; font-size: 10px; cursor: pointer; font-family: inherit;
+}
+.filter-clear-btn:hover { color: #e6edf3; border-color: #58a6ff; background: #1c2128; }
+
+.filter-input {
+  width: 100%; padding: 5px 8px; background: #161b22; border: 1px solid #30363d;
+  border-radius: 5px; color: #e6edf3; font-size: 12px; outline: none; font-family: inherit;
+}
+.filter-input:focus { border-color: #58a6ff; }
+.filter-input::placeholder { color: #4a5568; }
+.filter-year-row { display: flex; align-items: center; gap: 6px; }
+.filter-year-sep { font-size: 11px; color: #8b949e; flex-shrink: 0; }
+.filter-date { font-size: 11px; padding: 4px 6px; color-scheme: dark; }
+.filter-select {
+  flex: 1; padding: 4px 6px; background: #161b22; border: 1px solid #30363d;
+  border-radius: 5px; color: #e6edf3; font-size: 11px; outline: none; cursor: pointer; font-family: inherit;
+}
+.filter-select:focus { border-color: #58a6ff; }
+.filter-range-row { display: flex; align-items: center; gap: 6px; }
+.filter-range {
+  flex: 1; cursor: pointer; appearance: none; -webkit-appearance: none;
+  height: 3px; border-radius: 2px; background: #21262d; outline: none;
+}
+.filter-range::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 10px; height: 10px; border-radius: 50%;
+  background: #444d56; border: 1px solid #6e7681; cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.filter-range::-webkit-slider-thumb:hover { background: #586069; border-color: #8b949e; }
+.filter-range::-moz-range-thumb {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: #444d56; border: 1px solid #6e7681; cursor: pointer;
+}
+.filter-range-val { color: #6e7681; font-size: 10px; font-weight: 500; min-width: 30px; text-align: right; }
+
+/* Lang chips (used in popup) */
+.lang-chip {
+  display: flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 10px;
+  border: 1px solid #30363d; background: #0d1117; color: #8b949e;
+  font-size: 10px; cursor: pointer; transition: border-color 0.12s, color 0.12s, background 0.12s; white-space: nowrap;
+}
+.lang-chip:hover { border-color: var(--chip-color, #58a6ff); color: #e6edf3; }
+.lang-chip.active { background: #1c2128; border-color: var(--chip-color, #58a6ff); color: #e6edf3; }
+.lang-chip-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--chip-color, #8b949e); flex-shrink: 0; }
+
+/* Force layout collapsible */
+.collapsible-title {
+  display: flex; align-items: center; justify-content: space-between; cursor: pointer; user-select: none;
+}
+.collapsible-title:hover { color: #e6edf3; }
+.collapsible-chevron { font-size: 11px; color: #8b949e; transition: transform 0.15s; }
+.collapsible-body { overflow: hidden; }
+.collapsible-body.closed { display: none; }
+
+/* Shared label for force panel */
+.force-label { display: flex; align-items: center; justify-content: space-between; font-size: 10px; color: #6e7681; margin-bottom: 3px; }
+.force-group { margin-bottom: 7px; }
+
 /* Scrollbar */
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -256,7 +423,53 @@ html, body { height: 100%; overflow: hidden; font-family: -apple-system, BlinkMa
 
   <!-- Settings sidebar (left) -->
   <aside id="sidebar-left">
-    <div class="sidebar-header">Settings</div>
+    <div class="sidebar-header">Settings <button class="sidebar-collapse-btn" onclick="toggleSidebar('left')" title="Hide sidebar">◀</button></div>
+
+    <!-- Filter panel -->
+    <div class="sidebar-section" id="filter-panel">
+      <div class="filter-panel-header collapsed-hdr" onclick="toggleFilterPanel()">
+        <span class="sidebar-section-title" style="margin:0">Filter repos</span>
+        <span id="filter-active-count" class="filter-active-badge" style="display:none"></span>
+        <span class="filter-chevron">▾</span>
+      </div>
+      <div id="filter-body" class="hidden">
+        <div class="filter-group">
+          <label class="filter-label">Name / description</label>
+          <input class="filter-input" id="filter-name" type="text" placeholder="Search repos…">
+        </div>
+        <div class="filter-group">
+          <label class="filter-label">Language</label>
+          <div class="filter-chips" id="filter-lang-chips"></div>
+        </div>
+        <div class="filter-group">
+          <label class="filter-label">Contributor</label>
+          <input class="filter-input" id="filter-contrib" type="text" placeholder="GitHub login…">
+        </div>
+        <div class="filter-group">
+          <label class="filter-label">Created date</label>
+          <div class="filter-year-row">
+            <input class="filter-input filter-date" type="date" id="filter-created-from" title="From">
+            <span class="filter-year-sep">–</span>
+            <input class="filter-input filter-date" type="date" id="filter-created-to" title="To">
+          </div>
+        </div>
+        <div class="filter-group">
+          <label class="filter-label">Last push since</label>
+          <input class="filter-input filter-date" type="date" id="filter-pushed-since">
+        </div>
+        <div class="filter-group">
+          <label class="filter-label">Min stars</label>
+          <div class="filter-range-row">
+            <input type="range" class="filter-range" id="filter-stars" min="0" value="0">
+            <span class="filter-range-val" id="filter-stars-val">0</span>
+          </div>
+        </div>
+        <div class="filter-footer">
+          <span id="filter-status" class="filter-status"></span>
+          <button class="filter-clear-btn" onclick="clearFilters()">Clear all</button>
+        </div>
+      </div>
+    </div>
 
     <div class="sidebar-section">
       <div class="sidebar-section-title">Visibility</div>
@@ -279,19 +492,47 @@ html, body { height: 100%; overflow: hidden; font-family: -apple-system, BlinkMa
     </div>
 
     <div class="sidebar-section">
-      <div class="sidebar-section-title">Expand section for all nodes</div>
-      <button class="section-expand-btn" onclick="expandAllSection('created')">📅 Created date</button>
-      <button class="section-expand-btn" onclick="expandAllSection('contributors')">👥 Contributors</button>
-      <button class="section-expand-btn" onclick="expandAllSection('commits')">📈 Commit frequency</button>
-      <button class="section-expand-btn" onclick="expandAllSection('languages')">💻 Languages</button>
-      <button class="section-expand-btn" onclick="expandAllSection('dependencies')">📦 Dependencies</button>
-      <button class="section-expand-btn" onclick="expandAllSection('readme')">📄 README</button>
+      <div class="sidebar-section-title">Toggle section for all nodes</div>
+      <button class="section-expand-btn" onclick="toggleAllSection('created')">📅 Created date</button>
+      <button class="section-expand-btn" onclick="toggleAllSection('contributors')">👥 Contributors</button>
+      <button class="section-expand-btn" onclick="toggleAllSection('commits')">📈 Commit frequency</button>
+      <button class="section-expand-btn" onclick="toggleAllSection('languages')">💻 Languages</button>
+      <button class="section-expand-btn" onclick="toggleAllSection('dependencies')">📦 Dependencies</button>
     </div>
 
     <div class="sidebar-section">
       <div class="sidebar-section-title">Graph</div>
       <button class="section-expand-btn" onclick="resetLayout()">Reset layout</button>
       <button class="section-expand-btn" onclick="resetView()">Reset view</button>
+    </div>
+
+    <!-- Layout parameters -->
+    <div class="sidebar-section">
+      <div class="sidebar-section-title collapsible-title" onclick="toggleForcePanel()">
+        Force layout
+        <span class="collapsible-chevron" id="force-chevron" style="transform:rotate(-90deg)">▾</span>
+      </div>
+      <div class="collapsible-body closed" id="force-body">
+        <div class="force-group" style="margin-top:8px">
+          <label class="force-label">Center force <span class="filter-range-val" id="lp-gravity-val">0.005</span></label>
+          <div class="filter-range-row">
+            <input type="range" class="filter-range" id="lp-gravity" min="0" max="50" value="5">
+          </div>
+        </div>
+        <div class="force-group">
+          <label class="force-label">Attractive force <span class="filter-range-val" id="lp-attract-val">0.4</span></label>
+          <div class="filter-range-row">
+            <input type="range" class="filter-range" id="lp-attract" min="0" max="20" value="8">
+          </div>
+        </div>
+        <div class="force-group">
+          <label class="force-label">Min distance <span class="filter-range-val" id="lp-mindist-val">150</span></label>
+          <div class="filter-range-row">
+            <input type="range" class="filter-range" id="lp-mindist" min="20" max="500" step="10" value="150">
+          </div>
+        </div>
+        <button class="section-expand-btn" onclick="resetLayout()" style="margin-top:4px">Restart simulation</button>
+      </div>
     </div>
 
     <div class="sidebar-section" style="margin-top:auto; border-top: 1px solid #30363d;">
@@ -306,19 +547,46 @@ html, body { height: 100%; overflow: hidden; font-family: -apple-system, BlinkMa
         <marker id="arrowhead" viewBox="0 -5 10 10" refX="12" refY="0" markerWidth="6" markerHeight="6" orient="auto">
           <path d="M0,-5L10,0L0,5"/>
         </marker>
+        <marker id="arrowhead-mid" viewBox="0 -5 10 10" refX="5" refY="0" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,-5L10,0L0,5"/>
+        </marker>
         <marker id="arrowhead-hi" viewBox="0 -5 10 10" refX="12" refY="0" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,-5L10,0L0,5"/>
+        </marker>
+        <marker id="arrowhead-mid-hi" viewBox="0 -5 10 10" refX="5" refY="0" markerWidth="6" markerHeight="6" orient="auto">
           <path d="M0,-5L10,0L0,5"/>
         </marker>
       </defs>
       <g id="edges-group"></g>
     </svg>
     <div id="nodes-layer"></div>
+    <button class="sidebar-reveal-btn left" id="reveal-left" onclick="toggleSidebar('left')" title="Show settings">▶</button>
+    <button class="sidebar-reveal-btn right" id="reveal-right" onclick="toggleSidebar('right')" title="Show stats">◀</button>
+    <div id="zoom-controls">
+      <button class="zoom-btn" onclick="zoomBy(1.25)" title="Zoom in">+</button>
+      <button class="zoom-btn" onclick="zoomBy(0.8)" title="Zoom out">−</button>
+      <button class="zoom-btn" onclick="fitView()" title="Zoom to fit" style="font-size:12px">⊞</button>
+      <button class="zoom-btn" onclick="resetView()" title="Reset view" style="font-size:12px">⊡</button>
+    </div>
     <div id="zoom-hint">Scroll to zoom · Drag background to pan · Drag nodes to reposition</div>
+  </div>
+
+  <!-- README modal -->
+  <div id="readme-modal" onclick="if(event.target===this)closeReadmeModal()">
+    <div class="readme-modal-box">
+      <div class="readme-modal-header">
+        <span class="readme-modal-title" id="readme-modal-title"></span>
+        <button class="readme-modal-close" onclick="closeReadmeModal()" title="Close">✕</button>
+      </div>
+      <div class="readme-modal-body">
+        <div class="readme-rendered" id="readme-modal-content"></div>
+      </div>
+    </div>
   </div>
 
   <!-- Stats sidebar (right) -->
   <aside id="sidebar-right">
-    <div class="sidebar-header">Stats — <span id="stats-org-name"></span></div>
+    <div class="sidebar-header"><span>Stats — <span id="stats-org-name"></span></span><button class="sidebar-collapse-btn" onclick="toggleSidebar('right')" title="Hide sidebar">▶</button></div>
 
     <div class="sidebar-section">
       <div class="stat-grid">
@@ -411,11 +679,14 @@ function initGraph() {
   const W = container.clientWidth;
   const H = container.clientHeight;
 
+  // Seeded RNG for reproducible layouts
+  const rng = d3.randomLcg(42);
+
   // Build simulation node objects
-  nodes = DATA.repos.map((r, i) => ({
+  nodes = DATA.repos.map(r => ({
     ...r,
-    x: W / 2 + (Math.random() - 0.5) * Math.min(W, 600),
-    y: H / 2 + (Math.random() - 0.5) * Math.min(H, 400),
+    x: W / 2 + (rng() - 0.5) * Math.min(W, 600),
+    y: H / 2 + (rng() - 0.5) * Math.min(H, 400),
   }));
 
   const nodeById = new Map(nodes.map(n => [n.id, n]));
@@ -429,22 +700,36 @@ function initGraph() {
     }
   }
 
-  // Simulation
+  // Build simulation but don't start ticking yet
   simulation = d3.forceSimulation(nodes)
+    .randomSource(d3.randomLcg(42))
     .force('link', d3.forceLink(links).id(d => d.id).distance(220))
     .force('charge', d3.forceManyBody().strength(-500))
-    .force('center', d3.forceCenter(W / 2, H / 2))
+    .force('gravity', d3.forceRadial(0, W / 2, H / 2).strength(0.005))
     .force('collision', d3.forceCollide(150))
-    .on('tick', onTick);
+    .stop();
 
-  // Render edges
+  // Pre-warm: run 300 ticks silently before first render
+  simulation.tick(300);
+
+  // Render at settled positions
   renderEdges();
-  // Render node tiles
   renderNodes();
+  onTick();
+
+  // Fit viewport to all nodes
+  fitView();
+
+  // Resume live animation
+  simulation.on('tick', onTick).restart();
+
   // Sidebar meta
   document.getElementById('org-meta').innerHTML =
     `Org: <strong style="color:#e6edf3">${DATA.org}</strong><br>
      Generated: ${new Date(DATA.generated_at).toLocaleDateString()}`;
+
+  initFilterPanel();
+  initLayoutControls();
 }
 
 // ============================================================
@@ -455,10 +740,11 @@ let edgeEls = null;
 function renderEdges() {
   const g = d3.select('#edges-group');
   g.selectAll('*').remove();
-  edgeEls = g.selectAll('line')
+  edgeEls = g.selectAll('path')
     .data(links)
-    .join('line')
+    .join('path')
     .attr('class', 'edge')
+    .attr('marker-mid', 'url(#arrowhead-mid)')
     .attr('marker-end', 'url(#arrowhead)');
 }
 
@@ -494,14 +780,16 @@ function createNodeEl(node) {
       </div>
       <span class="repo-stars">★ ${node.stars}</span>
     </div>
-    <div class="node-desc">${esc((node.description || '').substring(0, 90))}</div>
+    <div class="node-desc">
+      <span style="flex:1">${esc((node.description || '').substring(0, 90))}</span>
+      ${node.readme ? '<button class="readme-expand-btn">README</button>' : ''}
+    </div>
     <div class="node-sections collapsed">
       ${buildSection(node, 'created',      '📅 Created')}
       ${buildSection(node, 'contributors', '👥 Contributors')}
       ${buildSection(node, 'commits',      '📈 Commit activity')}
       ${buildSection(node, 'languages',    '💻 Languages')}
       ${buildSection(node, 'dependencies', '📦 Dependencies')}
-      ${buildSection(node, 'readme',       '📄 README')}
     </div>
     <button class="details-toggle" data-node="${node.id}">▼ Details</button>
   `;
@@ -519,6 +807,15 @@ function createNodeEl(node) {
       toggleSection(hdr.closest('.section'));
     });
   });
+
+  // README expand button
+  const readmeBtn = el.querySelector('.readme-expand-btn');
+  if (readmeBtn) {
+    readmeBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      openReadmeModal(node);
+    });
+  }
 
   return el;
 }
@@ -543,12 +840,13 @@ function getSectionContent(node, key) {
     }
     case 'contributors': {
       if (!node.contributors.length) return '<em style="color:#8b949e">No contributor data</em>';
-      return node.contributors.slice(0, 10).map(c => `
+      const rows = node.contributors.map(c => `
         <div class="contributor">
           <img class="contrib-avatar" src="${c.avatar_url}" alt="${esc(c.login)}" loading="lazy">
           <span class="contrib-name"><a href="${c.profile_url}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">${esc(c.login)}</a></span>
           <span class="contrib-stats">${c.commit_count} commits${c.pr_count ? ` · ${c.pr_count} PRs` : ''}</span>
         </div>`).join('');
+      return `<div class="contributors-scroll">${rows}</div>`;
     }
     case 'commits': {
       const data = node.commit_frequency || Array(52).fill(0);
@@ -589,7 +887,10 @@ function getSectionContent(node, key) {
     }
     case 'readme': {
       if (!node.readme) return '<em style="color:#8b949e">No README</em>';
-      return `<div class="readme-content">${esc(node.readme.substring(0, 3000))}</div>`;
+      const preview = esc(node.readme.substring(0, 200));
+      const hasMore = node.readme.length > 200;
+      return `<div class="readme-preview">${preview}${hasMore ? '…' : ''}</div>
+              <button class="readme-expand-btn">View full README</button>`;
     }
   }
   return '';
@@ -623,13 +924,204 @@ function toggleDetails(nodeId) {
 }
 
 // ============================================================
+// Filter panel
+// ============================================================
+const filterState = { name: '', langs: new Set(), contributor: '', createdFrom: '', createdTo: '', pushedSince: '', minStars: 0 };
+
+function initFilterPanel() {
+  // Language chips — sorted by total usage across repos
+  const langTotals = {};
+  DATA.repos.forEach(r => Object.entries(r.languages || {}).forEach(([l, b]) => {
+    langTotals[l] = (langTotals[l] || 0) + b;
+  }));
+  const sortedLangs = Object.entries(langTotals).sort((a, b) => b[1] - a[1]).map(([l]) => l);
+  const chipsEl = document.getElementById('filter-lang-chips');
+  sortedLangs.forEach(lang => {
+    const color = LANG_COLORS[lang] || '#8b949e';
+    const chip = document.createElement('div');
+    chip.className = 'lang-chip';
+    chip.dataset.lang = lang;
+    chip.style.setProperty('--chip-color', color);
+    chip.innerHTML = `<div class="lang-chip-dot"></div>${esc(lang)}`;
+    chip.addEventListener('click', () => {
+      if (filterState.langs.has(lang)) {
+        filterState.langs.delete(lang);
+        chip.classList.remove('active');
+      } else {
+        filterState.langs.add(lang);
+        chip.classList.add('active');
+      }
+      applyFilters();
+    });
+    chipsEl.appendChild(chip);
+  });
+
+  // Set date input min/max bounds from data
+  const dates = DATA.repos.map(r => r.created_at ? r.created_at.slice(0, 10) : null).filter(Boolean);
+  const minDate = dates.reduce((a, b) => a < b ? a : b);
+  const maxDate = new Date().toISOString().slice(0, 10);
+  ['filter-created-from', 'filter-created-to', 'filter-pushed-since'].forEach(id => {
+    document.getElementById(id).min = minDate;
+    document.getElementById(id).max = maxDate;
+  });
+
+  // Stars slider
+  const maxStars = Math.max(...DATA.repos.map(r => r.stars || 0), 1);
+  const starsInput = document.getElementById('filter-stars');
+  starsInput.max = maxStars;
+
+  document.getElementById('filter-name').addEventListener('input', applyFilters);
+  document.getElementById('filter-contrib').addEventListener('input', applyFilters);
+  document.getElementById('filter-created-from').addEventListener('change', applyFilters);
+  document.getElementById('filter-created-to').addEventListener('change', applyFilters);
+  document.getElementById('filter-pushed-since').addEventListener('change', applyFilters);
+  starsInput.addEventListener('input', () => {
+    document.getElementById('filter-stars-val').textContent = starsInput.value;
+    applyFilters();
+  });
+
+  applyFilters();
+}
+
+function applyFilters() {
+  filterState.name        = (document.getElementById('filter-name').value || '').trim().toLowerCase();
+  filterState.contributor = (document.getElementById('filter-contrib').value || '').trim().toLowerCase();
+  filterState.createdFrom = document.getElementById('filter-created-from').value;
+  filterState.createdTo   = document.getElementById('filter-created-to').value;
+  filterState.pushedSince = document.getElementById('filter-pushed-since').value;
+  filterState.minStars    = parseInt(document.getElementById('filter-stars').value) || 0;
+
+  let matchCount = 0;
+  for (const node of nodes) {
+    node._filteredOut = !nodeMatchesFilters(node);
+    if (!node._filteredOut) matchCount++;
+  }
+
+  document.getElementById('filter-status').innerHTML =
+    `<span class="match-count">${matchCount}</span> / ${nodes.length} repos`;
+
+  const active = countActiveFilters();
+  const badge = document.getElementById('filter-active-count');
+  badge.textContent = active;
+  badge.style.display = active > 0 ? '' : 'none';
+
+  applyVisibility();
+}
+
+function nodeMatchesFilters(node) {
+  const { name, langs, contributor, createdFrom, createdTo, pushedSince, minStars } = filterState;
+  if (name) {
+    const hay = ((node.name || '') + ' ' + (node.description || '')).toLowerCase();
+    if (!hay.includes(name)) return false;
+  }
+  if (langs.size > 0) {
+    if (!Object.keys(node.languages || {}).some(l => langs.has(l))) return false;
+  }
+  if (contributor) {
+    if (!(node.contributors || []).some(c => c.login.toLowerCase().includes(contributor))) return false;
+  }
+  const created = node.created_at ? node.created_at.slice(0, 10) : null;
+  if (createdFrom && (!created || created < createdFrom)) return false;
+  if (createdTo   && (!created || created > createdTo))   return false;
+  const pushed = node.pushed_at ? node.pushed_at.slice(0, 10) : null;
+  if (pushedSince && (!pushed || pushed < pushedSince)) return false;
+  if (minStars > 0 && (node.stars || 0) < minStars) return false;
+  return true;
+}
+
+function countActiveFilters() {
+  let c = 0;
+  if (filterState.name) c++;
+  if (filterState.langs.size > 0) c++;
+  if (filterState.contributor) c++;
+  if (filterState.createdFrom || filterState.createdTo) c++;
+  if (filterState.pushedSince) c++;
+  if (filterState.minStars > 0) c++;
+  return c;
+}
+
+function clearFilters() {
+  document.getElementById('filter-name').value = '';
+  document.getElementById('filter-contrib').value = '';
+  document.getElementById('filter-created-from').value = '';
+  document.getElementById('filter-created-to').value = '';
+  document.getElementById('filter-pushed-since').value = '';
+  const starsInput = document.getElementById('filter-stars');
+  starsInput.value = 0;
+  document.getElementById('filter-stars-val').textContent = '0';
+  filterState.langs.clear();
+  document.querySelectorAll('.lang-chip.active').forEach(c => c.classList.remove('active'));
+  applyFilters();
+}
+
+function toggleFilterPanel() {
+  const body = document.getElementById('filter-body');
+  const hdr  = document.querySelector('.filter-panel-header');
+  body.classList.toggle('hidden');
+  hdr.classList.toggle('collapsed-hdr');
+}
+
+function toggleForcePanel() {
+  const body    = document.getElementById('force-body');
+  const chevron = document.getElementById('force-chevron');
+  const closed  = body.classList.toggle('closed');
+  chevron.style.transform = closed ? 'rotate(-90deg)' : '';
+}
+
+// ============================================================
+// Layout parameter controls
+// ============================================================
+function initLayoutControls() {
+  const wire = (id, valId, toValue, fmt, apply) => {
+    const input = document.getElementById(id);
+    const valEl = document.getElementById(valId);
+    input.addEventListener('input', () => {
+      const v = toValue(parseFloat(input.value));
+      valEl.textContent = fmt(v);
+      apply(v);
+      simulation.alpha(0.4).restart();
+    });
+  };
+
+  wire('lp-gravity', 'lp-gravity-val',
+    raw => raw / 10000,
+    v => v.toFixed(4),
+    v => simulation.force('gravity').strength(v)
+  );
+  wire('lp-attract', 'lp-attract-val',
+    raw => raw / 20,
+    v => v.toFixed(1),
+    v => simulation.force('link').strength(v)
+  );
+  wire('lp-mindist', 'lp-mindist-val',
+    raw => raw,
+    v => v,
+    v => simulation.force('collision').radius(v)
+  );
+}
+
+// ============================================================
 // Settings actions
 // ============================================================
-function expandAllSection(key) {
-  document.querySelectorAll(`.section[data-key="${key}"]`).forEach(s => {
-    s.classList.add('open');
-    s.style.display = '';
+function toggleAllSection(key) {
+  const sections = document.querySelectorAll(`.section[data-key="${key}"]`);
+  const anyOpen = Array.from(sections).some(s => s.classList.contains('open'));
+  sections.forEach(s => {
+    if (anyOpen) {
+      s.classList.remove('open');
+    } else {
+      s.classList.add('open');
+      s.style.display = '';
+    }
   });
+}
+
+function toggleSidebar(side) {
+  const sidebar = document.getElementById(`sidebar-${side}`);
+  const revealBtn = document.getElementById(`reveal-${side}`);
+  const isCollapsed = sidebar.classList.contains('collapsed');
+  sidebar.classList.toggle('collapsed', !isCollapsed);
+  revealBtn.style.display = isCollapsed ? 'none' : 'flex';
 }
 
 function applyVisibility() {
@@ -649,6 +1141,7 @@ function applyVisibility() {
     let visible = true;
     if (isOrphan && !showOrphans) visible = false;
     if (isStandalone && !showStandalone) visible = false;
+    if (node._filteredOut) visible = false;
 
     node._hidden = !visible;
     const el = document.getElementById(`node-${CSS.escape(node.id)}`);
@@ -656,6 +1149,7 @@ function applyVisibility() {
   }
 
   updateEdgeVisibility();
+  updateStatCounters();
 }
 
 function updateEdgeVisibility() {
@@ -668,12 +1162,50 @@ function updateEdgeVisibility() {
 }
 
 function resetLayout() {
+  const container = document.getElementById('graph-container');
+  simulation.force('gravity').x(container.clientWidth / 2).y(container.clientHeight / 2);
   nodes.forEach(n => { n.fx = null; n.fy = null; });
   simulation.alpha(0.8).restart();
 }
 
 function resetView() {
   vpTransform = { x: 0, y: 0, k: 1 };
+  applyVpTransform();
+}
+
+function fitView() {
+  const container = document.getElementById('graph-container');
+  const W = container.clientWidth;
+  const H = container.clientHeight;
+  const pad = 80;
+
+  const visible = nodes.filter(n => !n._hidden);
+  if (!visible.length) return;
+  const xs = visible.map(n => n.x);
+  const ys = visible.map(n => n.y);
+  const minX = Math.min(...xs) - NODE_WIDTH / 2;
+  const maxX = Math.max(...xs) + NODE_WIDTH / 2;
+  const minY = Math.min(...ys) - 60;
+  const maxY = Math.max(...ys) + 120;
+
+  const gW = maxX - minX;
+  const gH = maxY - minY;
+  const k  = Math.min((W - pad * 2) / gW, (H - pad * 2) / gH, 1);
+
+  vpTransform.k = k;
+  vpTransform.x = W / 2 - (minX + gW / 2) * k;
+  vpTransform.y = H / 2 - (minY + gH / 2) * k;
+  applyVpTransform();
+}
+
+function zoomBy(factor) {
+  const container = document.getElementById('graph-container');
+  const cx = container.clientWidth / 2;
+  const cy = container.clientHeight / 2;
+  const newK = Math.max(0.15, Math.min(3, vpTransform.k * factor));
+  vpTransform.x = cx - (cx - vpTransform.x) * (newK / vpTransform.k);
+  vpTransform.y = cy - (cy - vpTransform.y) * (newK / vpTransform.k);
+  vpTransform.k = newK;
   applyVpTransform();
 }
 
@@ -712,7 +1244,8 @@ function applyHighlight() {
       el.classList.remove('dimmed', 'highlighted');
     });
     edgeEls && edgeEls.classed('dimmed', false).classed('highlighted', false)
-                      .attr('marker-end', 'url(#arrowhead)');
+                      .attr('marker-end', 'url(#arrowhead)')
+                      .attr('marker-mid', 'url(#arrowhead-mid)');
     return;
   }
 
@@ -773,6 +1306,13 @@ function applyHighlight() {
       return (relatedIds.has(sid) && relatedIds.has(tid))
         ? 'url(#arrowhead-hi)'
         : 'url(#arrowhead)';
+    })
+    .attr('marker-mid', d => {
+      const sid = typeof d.source === 'object' ? d.source.id : d.source;
+      const tid = typeof d.target === 'object' ? d.target.id : d.target;
+      return (relatedIds.has(sid) && relatedIds.has(tid))
+        ? 'url(#arrowhead-mid-hi)'
+        : 'url(#arrowhead-mid)';
     });
 }
 
@@ -878,11 +1418,12 @@ function patchSvgSize() {
 // ============================================================
 function onTick() {
   if (edgeEls) {
-    edgeEls
-      .attr('x1', d => d.source.x)
-      .attr('y1', d => d.source.y)
-      .attr('x2', d => d.target.x)
-      .attr('y2', d => d.target.y);
+    edgeEls.attr('d', d => {
+      const x1 = d.source.x, y1 = d.source.y;
+      const x2 = d.target.x, y2 = d.target.y;
+      const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+      return `M${x1},${y1}L${mx},${my}L${x2},${y2}`;
+    });
   }
 
   nodes.forEach(n => {
@@ -896,6 +1437,28 @@ function onTick() {
 // ============================================================
 // Stats sidebar
 // ============================================================
+function updateStatCounters() {
+  const total   = nodes.length;
+  const visible = nodes.filter(n => !n._hidden);
+  const visCount = visible.length;
+
+  const reposEl = document.getElementById('stat-repos');
+  if (visCount === total) {
+    reposEl.textContent = total;
+  } else {
+    reposEl.innerHTML = `${visCount}<span class="stat-total"> /${total}</span>`;
+  }
+
+  const visContribs = new Set(visible.flatMap(n => (n.contributors || []).map(c => c.login)));
+  const allContribs = new Set(nodes.flatMap(n => (n.contributors || []).map(c => c.login)));
+  const contribsEl  = document.getElementById('stat-contributors');
+  if (visContribs.size === allContribs.size) {
+    contribsEl.textContent = allContribs.size;
+  } else {
+    contribsEl.innerHTML = `${visContribs.size}<span class="stat-total"> /${allContribs.size}</span>`;
+  }
+}
+
 function initStats() {
   const repos = DATA.repos;
   document.getElementById('stats-org-name').textContent = DATA.org;
@@ -973,13 +1536,35 @@ function setHighlightContrib(login) {
   applyHighlight();
 }
 
-// ============================================================
-// Utilities
-// ============================================================
 function esc(str) {
   return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// ============================================================
+// README modal
+// ============================================================
+function openReadmeModal(node) {
+  document.getElementById('readme-modal-title').textContent = node.name + ' — README';
+  const content = document.getElementById('readme-modal-content');
+  if (typeof marked !== 'undefined') {
+    content.innerHTML = marked.parse(node.readme || '');
+  } else {
+    content.textContent = node.readme || '';
+  }
+  document.getElementById('readme-modal').classList.add('open');
+}
+
+function closeReadmeModal() {
+  document.getElementById('readme-modal').classList.remove('open');
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeReadmeModal();
+});
+
+// ============================================================
+// Utilities
+// ============================================================
 function sparkline(data, width, height) {
   if (!data || !data.length) return '';
   const max = Math.max(...data, 1);

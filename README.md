@@ -15,6 +15,19 @@ python fetch.py <your-org>
 
 Open `docs/index.html` in your browser to preview the graph.
 
+## Creating a GitHub Token
+
+`GITHUB_TOKEN` needs a Personal Access Token (PAT), **not** an SSH key.
+
+1. Go to https://github.com/settings/tokens
+2. Click **Generate new token (classic)** or **Fine-grained token**
+3. Grant scopes: `repo` (or `public_repo`) and `read:org`
+4. Copy the token and set it in your environment or `.env`:
+
+```bash
+GITHUB_TOKEN="ghp_yourActualTokenHere"
+```
+
 ## Options
 
 ```
